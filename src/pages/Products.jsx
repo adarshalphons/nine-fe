@@ -23,13 +23,14 @@ export default function ProductsPage() {
   const [ws, setWs] = useState(null);
   const wsRef = useRef(null); // keep stable ref for cleanup
   const [tryonResults, setTryonResults] = useState({});
-
+  const HOST = "44.198.98.158:8000";
+  const WEBSOCKETHOST = "ws://44.198.98.158:8000";
   // Fetch products
   useEffect(() => {
     const fetchProducts = async () => {
       try {
         setIsLoading(true);
-        const res = await fetch("http://localhost:8000/api/products");
+        const res = await fetch(HOST+"/api/products");
         if (!res.ok) throw new Error("Failed to fetch products");
         const data = await res.json();
         setProducts(data);
@@ -108,7 +109,7 @@ export default function ProductsPage() {
 
     try {
       // 1) upload model
-      const uploadRes = await fetch("http://localhost:8000/upload_model", {
+      const uploadRes = await fetch(HOST+"/upload_model", {
         method: "POST",
         body: formData,
       });
@@ -121,7 +122,7 @@ export default function ProductsPage() {
       setModelKey(newModelKey);
 
       // 2) open websocket and WAIT for open before starting tryon
-      const socket = new WebSocket(`ws://localhost:8000/ws?model_key=${newModelKey}`);
+      const socket = new WebSocket(WEBSOCKETHOST+`/ws?model_key=${newModelKey}`);
 
       // Use addEventListener so we DON'T overwrite other handlers
       const onOpen = async () => {
@@ -134,7 +135,7 @@ export default function ProductsPage() {
         }));
 
         try {
-          const startRes = await fetch("http://localhost:8000/start_tryon", {
+          const startRes = await fetch(HOST+"/start_tryon", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ model_key: newModelKey, garments }),
