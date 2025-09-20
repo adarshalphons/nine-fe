@@ -23,7 +23,7 @@ export default function ProductsPage() {
   const [ws, setWs] = useState(null);
   const wsRef = useRef(null); // keep stable ref for cleanup
   const [tryonResults, setTryonResults] = useState({});
-  const HOST = "44.198.98.158:8000";
+  const HOST = "http://44.198.98.158:8000";
   const WEBSOCKETHOST = "ws://44.198.98.158:8000";
   // Fetch products
   useEffect(() => {
