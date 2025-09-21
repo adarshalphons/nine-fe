@@ -131,6 +131,7 @@ export default function ProductsPage() {
         const garments = products.map((p) => ({
           id: p.id,
           url: p.image_path,
+          category: p.category || "auto",
           photo_type: p.photo_type || "flat-lay",
         }));
 
