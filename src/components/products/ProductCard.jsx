@@ -15,7 +15,12 @@ export default function ProductCard({ product, isTryOnMode = false, tryonResults
   const showTryOnBadge = isTryOnMode && tryonResults[product.id];
 
   return (
-    <Link to={createPageUrl(`ProductDetail?id=${product.id}`)} className="block">
+    <Link
+  to={createPageUrl(`ProductDetail?id=${product.id}`)}
+  state={{ tryonImage: tryonResults[product.id] || null }}
+  className="block"
+>
+
       <Card className="border-none shadow-none bg-transparent group overflow-hidden">
         <CardContent className="p-0">
           <div className="relative">

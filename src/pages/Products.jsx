@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import FilterSidebar from '../components/products/FilterSidebar';
 import ProductCard from '../components/products/ProductCard';
 import VirtualTryOnModal from '../components/products/VirtualTryOnModal';
@@ -12,95 +12,82 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { useTryOn } from "@/utils/TryOnContext";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isTryOnModalOpen, setIsTryOnModalOpen] = useState(false);
-  const [isTryOnMode, setIsTryOnMode] = useState(false);
-  const [uploadedPhotos, setUploadedPhotos] = useState([]);
   const [modelKey, setModelKey] = useState(null);
-  const [ws, setWs] = useState(null);
-  const wsRef = useRef(null); // keep stable ref for cleanup
-  const [tryonResults, setTryonResults] = useState({});
-  const HOST = "http://44.198.98.158:8000";
-  const WEBSOCKETHOST = "ws://44.198.98.158:8000";
-  // Fetch products
+
+  const {
+    isTryOnMode,
+    uploadedPhotos,
+    tryonResults,
+    enableTryOn,
+    disableTryOn,
+    attachWebSocket
+  } = useTryOn();
+
+  const HOST = import.meta.env.VITE_API_HOST;
+  const WEBSOCKETHOST = import.meta.env.VITE_WEBSOCKETHOST;
+  const HOME_SITE = import.meta.env.VITE_HOME_SITE;
+
+  // Fetch products once
   useEffect(() => {
-    const fetchProducts = async () => {
+    const checkAuthAndFetch = async () => {
       try {
         setIsLoading(true);
-        const res = await fetch(HOST+"/api/products");
-        if (!res.ok) throw new Error("Failed to fetch products");
-        const data = await res.json();
-        setProducts(data);
+        const urlParams = new URLSearchParams(window.location.search);
+        const tempToken = urlParams.get("authToken");
+        let finalToken = localStorage.getItem("authToken");
+
+        if (tempToken) {
+          const res = await fetch(HOST + "/api/auth/validate-temp-token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: tempToken }),
+          });
+
+          if (!res.ok) {
+            localStorage.removeItem("authToken");
+            throw new Error("Invalid temp token");
+          }
+
+          const data = await res.json();
+          finalToken = data.token;
+          localStorage.setItem("authToken", finalToken);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        if (!finalToken) {
+          window.location.href = HOME_SITE;
+          return;
+        }
+
+        const res = await fetch(HOST + "/api/products", {
+          headers: { Authorization: `Bearer ${finalToken}` },
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setProducts(data);
+        } else {
+          localStorage.removeItem("authToken");
+          window.location.href = HOME_SITE;
+        }
       } catch (err) {
-        console.error("Error fetching products:", err);
+        console.error(err);
+        window.location.href = HOME_SITE;
       } finally {
         setIsLoading(false);
       }
     };
-    fetchProducts();
+
+    checkAuthAndFetch();
   }, []);
 
-  // Clean up websocket if component unmounts
-  useEffect(() => {
-    return () => {
-      if (wsRef.current) {
-        try { wsRef.current.close(); } catch(e){/*ignore*/ }
-        wsRef.current = null;
-      }
-    };
-  }, []);
-
-  // WebSocket message handler (attached when ws is set)
-  useEffect(() => {
-    if (!ws) return;
-
-    // prefer addEventListener to avoid wiping out handlers set elsewhere
-    const onMessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        console.log("ProductsPage WS message:", msg);
-
-        if (msg.status === "done" && msg.garment_id && msg.url) {
-          const urlWithTs = `${msg.url}?t=${Date.now()}`;
-          setTryonResults((prev) => ({
-            ...prev,
-            [msg.garment_id]: urlWithTs,
-          }));
-        } else if (msg.status === "error") {
-          console.warn("Try-on error for garment:", msg.garment_id, msg.error || msg);
-        } else {
-          console.debug("WS progress:", msg);
-        }
-      } catch (err) {
-        console.error("Failed to parse WS message:", err, event.data);
-      }
-    };
-
-    const onClose = () => console.log("ProductsPage: WebSocket closed (useEffect)");
-    const onError = (err) => console.error("ProductsPage: WebSocket error", err);
-
-    ws.addEventListener("message", onMessage);
-    ws.addEventListener("close", onClose);
-    ws.addEventListener("error", onError);
-
-    // don't set ws.onopen here (we don't want to overwrite any existing open handlers)
-
-    // store ref for cleanup
-    wsRef.current = ws;
-
-    return () => {
-      try {
-        ws.removeEventListener("message", onMessage);
-        ws.removeEventListener("close", onClose);
-        ws.removeEventListener("error", onError);
-      } catch (e) { /* ignore */ }
-    };
-  }, [ws]);
-
-  // Parent handler: receives files from modal and performs upload + websocket + start_tryon
+  // Enable Try-On
   const handleEnableTryOn = async (files) => {
     if (!files || files.length === 0) return;
     const file = files[0];
@@ -108,85 +95,42 @@ export default function ProductsPage() {
     formData.append("file", file, file.name);
 
     try {
-      // 1) upload model
-      const uploadRes = await fetch(HOST+"/upload_model", {
-        method: "POST",
-        body: formData,
-      });
+      const uploadRes = await fetch(HOST + "/upload_model", { method: "POST", body: formData });
       const uploadData = await uploadRes.json();
-      if (!uploadData.model_key) {
-        console.error("upload_model returned no model_key:", uploadData);
-        return;
-      }
+      if (!uploadData.model_key) return console.error("No model_key returned");
+
       const newModelKey = uploadData.model_key;
       setModelKey(newModelKey);
 
-      // 2) open websocket and WAIT for open before starting tryon
-      const socket = new WebSocket(WEBSOCKETHOST+`/ws?model_key=${newModelKey}`);
+      const socket = new WebSocket(`${WEBSOCKETHOST}/ws?model_key=${newModelKey}`);
+      attachWebSocket(socket);
 
-      // Use addEventListener so we DON'T overwrite other handlers
-      const onOpen = async () => {
-        console.log("Socket open - starting tryon request");
-
-        const garments = products.map((p) => ({
+      socket.addEventListener("open", async () => {
+        const garments = products.map(p => ({
           id: p.id,
           url: p.image_path,
           category: p.category || "auto",
-          photo_type: p.photo_type || "flat-lay",
+          photo_type: p.photo_type || "flat-lay"
         }));
 
-        try {
-          const startRes = await fetch(HOST+"/start_tryon", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ model_key: newModelKey, garments }),
-          });
-          if (!startRes.ok) {
-            console.error("start_tryon failed:", await startRes.text());
-          } else {
-            console.log("start_tryon accepted");
-            setIsTryOnModalOpen(false);
-            setUploadedPhotos(files);
-            setIsTryOnMode(true);
-          }
-        } catch (err) {
-          console.error("Failed to call start_tryon:", err);
-        }
-      };
-      socket.addEventListener("open", onOpen);
+        const startRes = await fetch(HOST + "/start_tryon", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model_key: newModelKey, garments }),
+        });
 
-      // add message listener too (we will still have the ws useEffect, but add here for immediate logs)
-      const onMessage = (e) => {
-        console.log("Socket temp message:", e.data);
-      };
-      socket.addEventListener("message", onMessage);
-
-      socket.addEventListener("error", (err) => {
-        console.error("Socket error (parent):", err);
+        if (startRes.ok) enableTryOn(files);
+        else console.error("start_tryon failed");
       });
 
-      // save socket and leave actual processing to the ws useEffect (which handles .onmessage)
-      setWs(socket);
-
-      // cleanup: if component unmounts you should remove listeners; the wsRef cleanup handles that
     } catch (err) {
-      console.error("Error in handleEnableTryOn:", err);
+      console.error("EnableTryOn error:", err);
     }
   };
 
   const handleDisableTryOn = () => {
-    if (wsRef.current) {
-      try { wsRef.current.close(); } catch(e){}
-      wsRef.current = null;
-    }
-    if (ws) {
-      try { ws.close(); } catch(e){}
-      setWs(null);
-    }
     setModelKey(null);
-    setTryonResults({});
-    setIsTryOnMode(false);
-    setUploadedPhotos([]);
+    disableTryOn();
   };
 
   return (
@@ -196,40 +140,27 @@ export default function ProductsPage() {
         <p className="mt-2 text-base text-gray-500">Discover our latest collection of timeless styles.</p>
       </div>
 
-      {/* Virtual Try-On Button */}
       <div className="flex justify-end mb-6">
         {isTryOnMode ? (
-          <Button
-            onClick={handleDisableTryOn}
-            variant="outline"
-            className="gap-2 border-purple-200 text-purple-700 hover:bg-purple-50"
-          >
-            <Camera size={16} />
-            Disable Try-On
+          <Button onClick={handleDisableTryOn} variant="outline" className="gap-2 border-purple-200 text-purple-700 hover:bg-purple-50">
+            <Camera size={16} /> Disable Try-On
           </Button>
         ) : (
-          <Button
-            onClick={() => setIsTryOnModalOpen(true)}
-            className="gap-2 bg-purple-600 hover:bg-purple-700"
-          >
-            <Camera size={16} />
-            Virtual Try-On
+          <Button onClick={() => setIsTryOnModalOpen(true)} className="gap-2 bg-purple-600 hover:bg-purple-700">
+            <Camera size={16} /> Virtual Try-On
           </Button>
         )}
       </div>
 
       {isTryOnMode && (
         <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Camera className="w-5 h-5 text-purple-600" />
-              <div>
-                <p className="font-medium text-purple-900">Virtual Try-On Active</p>
-                <p className="text-sm text-purple-700">
-                  Viewing products with your uploaded photos • {uploadedPhotos.length} photo
-                  {uploadedPhotos.length !== 1 ? "s" : ""} uploaded
-                </p>
-              </div>
+          <div className="flex items-center gap-3">
+            <Camera className="w-5 h-5 text-purple-600" />
+            <div>
+              <p className="font-medium text-purple-900">Virtual Try-On Active</p>
+              <p className="text-sm text-purple-700">
+                Viewing products with your uploaded photos • {uploadedPhotos.length} photo{uploadedPhotos.length !== 1 ? "s" : ""}
+              </p>
             </div>
           </div>
         </div>
@@ -239,44 +170,32 @@ export default function ProductsPage() {
         <div className="md:hidden flex justify-end">
           <Dialog>
             <DialogTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <SlidersHorizontal size={16} /> Filter
-              </Button>
+              <Button variant="outline" className="gap-2"><SlidersHorizontal size={16} /> Filter</Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Filter Products</DialogTitle>
-              </DialogHeader>
-              <div className="py-4">
-                <FilterSidebar />
-              </div>
+              <DialogHeader><DialogTitle>Filter Products</DialogTitle></DialogHeader>
+              <div className="py-4"><FilterSidebar /></div>
             </DialogContent>
           </Dialog>
         </div>
 
-        <div className="hidden md:block">
-          <FilterSidebar />
-        </div>
+        <div className="hidden md:block"><FilterSidebar /></div>
 
         <div className="flex-1">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-4 gap-y-8">
             {isLoading
-              ? Array.from({ length: 20 }).map((_, index) => (
-                  <div key={index} className="space-y-2">
+              ? Array.from({ length: 20 }).map((_, i) => (
+                  <div key={i} className="space-y-2">
                     <Skeleton className="aspect-[3/4] w-full rounded-md" />
                     <Skeleton className="h-4 w-1/4" />
                     <Skeleton className="h-5 w-3/4" />
                     <Skeleton className="h-5 w-1/2" />
                   </div>
                 ))
-              : products.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    isTryOnMode={isTryOnMode}
-                    tryonResults={tryonResults}
-                  />
-                ))}
+              : products.map(product => (
+                  <ProductCard key={product.id} product={product} isTryOnMode={isTryOnMode} tryonResults={tryonResults} />
+                ))
+            }
           </div>
         </div>
       </div>
@@ -285,7 +204,7 @@ export default function ProductsPage() {
         isOpen={isTryOnModalOpen}
         products={products}
         onClose={() => setIsTryOnModalOpen(false)}
-        onEnableTryOn={handleEnableTryOn} // modal will call this with selected files
+        onEnableTryOn={handleEnableTryOn}
       />
     </div>
   );

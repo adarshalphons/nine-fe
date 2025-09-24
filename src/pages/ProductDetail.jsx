@@ -10,7 +10,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Star, Heart, ArrowLeft, Truck, RotateCcw, Shield, Camera } from 'lucide-react';
 import ProductCard from '../components/products/ProductCard';
 import VirtualTryOnModal from '../components/products/VirtualTryOnModal';
-
+import {useTryOn} from "@/utils/TryOnContext";
+const HOST = import.meta.env.VITE_API_HOST;
 // Mock product data - moved outside component to avoid re-creation on re-renders
 const mockProduct = {
   name: "Crinkle Gauze Tiered Mini Dress",
@@ -63,10 +64,12 @@ export default function ProductDetailPage() {
   const [selectedColor, setSelectedColor] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [isTryOnModalOpen, setIsTryOnModalOpen] = useState(false);
-  const [isTryOnMode, setIsTryOnMode] = useState(false);
-  const [uploadedPhotos, setUploadedPhotos] = useState([]);
+  const { isTryOnMode, setIsTryOnMode, uploadedPhotos, setUploadedPhotos } = useTryOn();
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingProgress, setProcessingProgress] = useState(0);
+//   const [productInfo, getproductInfo] = useState(
+//   "https://placehold.co/600x800/f1f5f9/f1f5f9?text=Product+Image"
+// );
 
   // Get product from URL params or location state
   const urlParams = new URLSearchParams(location.search);
@@ -123,18 +126,79 @@ export default function ProductDetailPage() {
     alert(`Added ${quantity} x ${product.name} (${selectedSize}, ${selectedColor}) to bag`);
   };
 
-  // Generate a try-on image URL
-  const getTryOnImage = (productId) => {
-    return `https://placehold.co/600x800/e3f2fd/1976d2?text=Try-On+${productId}`;
+const [productInfo, setProductInfo] = useState({
+  id: product.id,
+  name: product.name || "Product Name",
+  description: product.description || "No description available",
+  price: product.price || 0,
+  image_path: "https://placehold.co/600x800/f1f5f9/f1f5f9?text=Product+Image"
+});
+const [imageUrl, setImageUrl] = useState(
+  "https://placehold.co/600x800/f1f5f9/f1f5f9?text=Product+Image"
+);
+
+const getProductById = async (productId) => {
+  try {
+    const res = await fetch(HOST + `/api/products/${productId}`);
+    if (!res.ok) throw new Error(`Failed to fetch product: ${res.status}`);
+    const data = await res.json();
+    // Return full product info with dummy fallbacks
+    return {
+      id: data.id || productId,
+      name: data.name || "Product Name",
+      description: data.description || "No description available",
+      price: data.price || 0,
+      image_path: data.image_path || "https://placehold.co/600x800/e3f2fd/1976d2?text=Image+Not+Available"
+    };
+  } catch (error) {
+    console.error("Error fetching product:", error);
+    // Return dummy product info on error
+    return {
+      id: productId,
+      name: "Product Name",
+      description: "No description available",
+      price: 0,
+      image_path: "https://placehold.co/600x800/ffebee/d32f2f?text=Error+Loading+Image"
+    };
+  }
+};
+
+const getTryOnImage = async (productId) => {
+  const productData = await getProductById(productId);
+  setProductInfo(productData);
+  return productData.image_path;
+};
+
+// Usage inside a component
+useEffect(() => {
+  const fetchProductInfo = async () => {
+    if (!isTryOnMode) {
+      const url = await getTryOnImage(product.id);
+      setImageUrl(url);
+    } else {
+      const { tryonImage } = location.state || {};
+
+      const imageUrl = tryonImage || product.image_path;
+      console.log("TRYON IMAGE URL  ===>>>   ",imageUrl)
+      setImageUrl(imageUrl);
+      setProductInfo({
+        ...productInfo,
+        image_path: defaultUrl
+      });
+    }
   };
 
+  fetchProductInfo();
+}, [isTryOnMode, product.id]);
+console.log("productInfo", productInfo)
   // The actual product image would ideally come from the mockProduct data.
   // For now, we use a placeholder that matches the original design's spirit.
   const defaultProductImage = 'https://placehold.co/600x800/f1f5f9/f1f5f9?text=Product+Image'; 
-
-  const imageUrl = isTryOnMode 
-    ? getTryOnImage(product.id)
-    : defaultProductImage;
+  console.log("isTryOnMode", isTryOnMode)
+  console.log("product.id", product.id)
+  // const imageUrl = isTryOnMode 
+  //   ? getTryOnImage(product.id)
+  //   : defaultProductImage;
 
   return (
     <div className="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -205,7 +269,7 @@ export default function ProductDetailPage() {
           <AspectRatio ratio={3 / 4} className="bg-gray-100 rounded-lg relative">
             <img 
               src={imageUrl} 
-              alt={product.name}
+              alt={productInfo.name}
               className="object-cover w-full h-full rounded-lg"
             />
             {isProcessing && (
@@ -245,12 +309,12 @@ export default function ProductDetailPage() {
             {product.isNew && (
               <Badge className="mb-2 bg-green-100 text-green-800">New Arrival</Badge>
             )}
-            <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">{product.name}</h1>
+            <h1 className="text-2xl lg:text-3xl font-bold text-gray-900">{productInfo.name}</h1>
             <div className="flex items-center gap-4 mt-2">
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold text-gray-900">${product.price}</span>
-                {product.originalPrice && (
-                  <span className="text-lg text-gray-500 line-through">${product.originalPrice}</span>
+                <span className="text-2xl font-bold text-gray-900">${productInfo.price}</span>
+                {productInfo.price && (
+                  <span className="text-lg text-gray-500 line-through">${productInfo.price}</span>
                 )}
               </div>
               <div className="flex items-center gap-1">
