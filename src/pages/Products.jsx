@@ -7,11 +7,13 @@ import { SlidersHorizontal, Camera } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
+  DialogTrigger,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
+  DialogDescription,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { useTryOn } from "@/utils/TryOnContext";
 
 export default function ProductsPage() {
@@ -19,6 +21,11 @@ export default function ProductsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isTryOnModalOpen, setIsTryOnModalOpen] = useState(false);
   const [modelKey, setModelKey] = useState(null);
+
+  // Login modal states
+  const [isLoginModalOpen, setLoginModalOpen] = useState(false);
+  const [passcode, setPasscode] = useState("");
+  const [passcodeError, setPasscodeError] = useState("");
 
   const {
     isTryOnMode,
@@ -31,63 +38,100 @@ export default function ProductsPage() {
 
   const HOST = import.meta.env.VITE_API_HOST;
   const WEBSOCKETHOST = import.meta.env.VITE_WEBSOCKETHOST;
-  const HOME_SITE = import.meta.env.VITE_HOME_SITE;
 
-  // Fetch products once
+  // --------------------------
+  // Login & Auth handling
+  // --------------------------
+  const checkAuthAndFetch = async () => {
+  try {
+    setIsLoading(true);
+    const finalToken = localStorage.getItem("authToken");
+
+    if (!finalToken) {
+      setLoginModalOpen(true);
+      return;
+    }
+
+    const res = await fetch(HOST + "/api/products", {
+      headers: { Authorization: `Bearer ${finalToken}` },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      setProducts(data);
+    } else {
+      localStorage.removeItem("authToken");
+      setLoginModalOpen(true);
+    }
+  } catch (err) {
+    console.error(err);
+    setLoginModalOpen(true);
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+
   useEffect(() => {
-    const checkAuthAndFetch = async () => {
-      try {
-        setIsLoading(true);
-        const urlParams = new URLSearchParams(window.location.search);
-        const tempToken = urlParams.get("authToken");
-        let finalToken = localStorage.getItem("authToken");
-
-        if (tempToken) {
-          const res = await fetch(HOST + "/api/auth/validate-temp-token", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token: tempToken }),
-          });
-
-          if (!res.ok) {
-            localStorage.removeItem("authToken");
-            throw new Error("Invalid temp token");
-          }
-
-          const data = await res.json();
-          finalToken = data.token;
-          localStorage.setItem("authToken", finalToken);
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-
-        if (!finalToken) {
-          window.location.href = HOME_SITE;
-          return;
-        }
-
-        const res = await fetch(HOST + "/api/products", {
-          headers: { Authorization: `Bearer ${finalToken}` },
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          setProducts(data);
-        } else {
-          localStorage.removeItem("authToken");
-          window.location.href = HOME_SITE;
-        }
-      } catch (err) {
-        console.error(err);
-        window.location.href = HOME_SITE;
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     checkAuthAndFetch();
   }, []);
 
-  // Enable Try-On
+  // Handle login submit
+  // Handle login submit
+const handlePasscodeCheck = async (e) => {
+  e.preventDefault();
+  try {
+    // Step 1: Login to get temp token
+    const response = await fetch(HOST + "/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passcode }),
+    });
+
+    if (!response.ok) throw new Error("Invalid login");
+
+    const data = await response.json();
+    const tempToken = data?.token;
+    if (!tempToken) {
+      setPasscodeError("No temp token received from server");
+      return;
+    }
+
+    // Step 2: Validate the temp token to get final token
+    const validateRes = await fetch(HOST + "/api/auth/validate-temp-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: tempToken }),
+    });
+
+    if (!validateRes.ok) throw new Error("Token validation failed");
+    const validateData = await validateRes.json();
+
+    const finalToken = validateData?.token;
+    if (!finalToken) {
+      setPasscodeError("No final token returned after validation");
+      return;
+    }
+
+    // Step 3: Store final token only
+    localStorage.setItem("authToken", finalToken);
+
+    // Cleanup and reload products
+    setLoginModalOpen(false);
+    setPasscode("");
+    setPasscodeError("");
+    checkAuthAndFetch();
+
+  } catch (error) {
+    console.error("Login failed:", error);
+    setPasscodeError("Passcode incorrect or validation failed. Please re-enter");
+  }
+};
+
+
+  // --------------------------
+  // Try-On handling
+  // --------------------------
   const handleEnableTryOn = async (files) => {
     if (!files || files.length === 0) return;
     const file = files[0];
@@ -133,6 +177,9 @@ export default function ProductsPage() {
     disableTryOn();
   };
 
+  // --------------------------
+  // Render
+  // --------------------------
   return (
     <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="text-center mb-8">
@@ -140,6 +187,33 @@ export default function ProductsPage() {
         <p className="mt-2 text-base text-gray-500">Discover our latest collection of timeless styles.</p>
       </div>
 
+      {/* Login Modal */}
+      <Dialog open={isLoginModalOpen} onOpenChange={setLoginModalOpen}>
+        <DialogContent className="sm:max-w-md bg-white">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold">Secure layer</DialogTitle>
+            <DialogDescription>Enter passcode</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handlePasscodeCheck} className="space-y-6 pt-4">
+            <div className="flex flex-col items-center">
+              <Input
+                type="text"
+                maxLength={6}
+                value={passcode}
+                onChange={(e) => setPasscode(e.target.value)}
+                placeholder="******"
+                className="text-center text-lg tracking-[0.3em]"
+              />
+              {passcodeError && <p className="text-sm text-red-500 mt-2">{passcodeError}</p>}
+            </div>
+            <Button type="submit" className="w-full bg-zinc-900 text-white hover:bg-zinc-700">
+              Enter
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Try-On Toggle */}
       <div className="flex justify-end mb-6">
         {isTryOnMode ? (
           <Button onClick={handleDisableTryOn} variant="outline" className="gap-2 border-purple-200 text-purple-700 hover:bg-purple-50">
@@ -166,6 +240,7 @@ export default function ProductsPage() {
         </div>
       )}
 
+      {/* Products Grid */}
       <div className="flex flex-col md:flex-row gap-8 lg:gap-12">
         <div className="md:hidden flex justify-end">
           <Dialog>
