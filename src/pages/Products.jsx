@@ -42,7 +42,8 @@ export default function ProductsPage() {
   // --------------------------
   // Login & Auth handling
   // --------------------------
-  const checkAuthAndFetch = async () => {
+
+const checkAuthAndFetch = async () => {
   try {
     setIsLoading(true);
     const finalToken = localStorage.getItem("authToken");
@@ -71,13 +72,52 @@ export default function ProductsPage() {
   }
 };
 
+// ✅ New function to handle validating any token (from login or URL param)
+const validateAndStoreToken = async (tempToken) => {
+  try {
+    const validateRes = await fetch(HOST + "/api/auth/validate-temp-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: tempToken }),
+    });
 
-  useEffect(() => {
+    if (!validateRes.ok) throw new Error("Token validation failed");
+
+    const validateData = await validateRes.json();
+    const finalToken = validateData?.token;
+
+    if (!finalToken) throw new Error("No final token returned");
+
+    localStorage.setItem("authToken", finalToken);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("authToken");
+    window.history.replaceState({}, document.title, url.toString());
+    // refresh data
+    await checkAuthAndFetch();
+    setLoginModalOpen(false);
+    setPasscode("");
+    setPasscodeError("");
+  } catch (error) {
+    console.error("Token validation error:", error);
+    setPasscodeError("Token validation failed. Please log in again.");
+    setLoginModalOpen(true);
+  }
+};
+
+// ✅ Check URL params for authToken on mount
+useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get("authToken");
+
+  if (urlToken) {
+    // if URL has authToken, validate it immediately
+    validateAndStoreToken(urlToken);
+  } else {
     checkAuthAndFetch();
-  }, []);
+  }
+}, []);
 
-  // Handle login submit
-  // Handle login submit
+// ✅ Handle login modal flow
 const handlePasscodeCheck = async (e) => {
   e.preventDefault();
   try {
@@ -97,36 +137,14 @@ const handlePasscodeCheck = async (e) => {
       return;
     }
 
-    // Step 2: Validate the temp token to get final token
-    const validateRes = await fetch(HOST + "/api/auth/validate-temp-token", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: tempToken }),
-    });
-
-    if (!validateRes.ok) throw new Error("Token validation failed");
-    const validateData = await validateRes.json();
-
-    const finalToken = validateData?.token;
-    if (!finalToken) {
-      setPasscodeError("No final token returned after validation");
-      return;
-    }
-
-    // Step 3: Store final token only
-    localStorage.setItem("authToken", finalToken);
-
-    // Cleanup and reload products
-    setLoginModalOpen(false);
-    setPasscode("");
-    setPasscodeError("");
-    checkAuthAndFetch();
-
+    // Step 2: Validate and store final token
+    await validateAndStoreToken(tempToken);
   } catch (error) {
     console.error("Login failed:", error);
     setPasscodeError("Passcode incorrect or validation failed. Please re-enter");
   }
 };
+
 
 
   // --------------------------
@@ -145,7 +163,7 @@ const handlePasscodeCheck = async (e) => {
 
       const newModelKey = uploadData.model_key;
       setModelKey(newModelKey);
-
+      
       const socket = new WebSocket(`${WEBSOCKETHOST}/ws?model_key=${newModelKey}`);
       attachWebSocket(socket);
 
@@ -162,9 +180,10 @@ const handlePasscodeCheck = async (e) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ model_key: newModelKey, garments }),
         });
-
+        
         if (startRes.ok) enableTryOn(files);
         else console.error("start_tryon failed");
+        setIsTryOnModalOpen(false)
       });
 
     } catch (err) {
