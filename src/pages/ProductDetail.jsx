@@ -138,8 +138,11 @@ const [imageUrl, setImageUrl] = useState(
 );
 
 const getProductById = async (productId) => {
+  const finalToken = localStorage.getItem("authToken");
   try {
-    const res = await fetch(HOST + `/api/products/${productId}`);
+    const res = await fetch(HOST + `/api/products/${productId}`, {
+      headers: { Authorization: `Bearer ${finalToken}` },
+    });
     if (!res.ok) throw new Error(`Failed to fetch product: ${res.status}`);
     const data = await res.json();
     // Return full product info with dummy fallbacks
