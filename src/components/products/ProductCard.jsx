@@ -33,7 +33,7 @@ export default function ProductCard({ product, isTryOnMode = false, tryonResults
               {showTryOnBadge && (
                 <div className="absolute top-2 right-2">
                   <Badge className="bg-purple-600 text-white shadow-lg">
-                    {product.photo_type === "model" ? "Model Try-On" : "Flat-Lay"}
+                    Virtual Try-On
                   </Badge>
                 </div>
               )}
