@@ -162,6 +162,8 @@ const handlePasscodeCheck = async (e) => {
       if (!uploadData.model_key) return console.error("No model_key returned");
 
       const newModelKey = uploadData.model_key;
+      const cacheId = uploadData.cache_id;
+      console.log("Uploaded model_key:", newModelKey, "cache_id:", cacheId);
       setModelKey(newModelKey);
       
       const socket = new WebSocket(`${WEBSOCKETHOST}/ws?model_key=${newModelKey}`);
@@ -178,7 +180,7 @@ const handlePasscodeCheck = async (e) => {
         const startRes = await fetch(HOST + "/start_tryon", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model_key: newModelKey, garments }),
+          body: JSON.stringify({ model_key: newModelKey,cache_id:cacheId, garments }),
         });
         
         if (startRes.ok) enableTryOn(files);
