@@ -166,10 +166,13 @@ const handlePasscodeCheck = async (e) => {
       console.log("Uploaded model_key:", newModelKey, "cache_id:", cacheId);
       setModelKey(newModelKey);
       
+      enableTryOn(files);
+      setIsTryOnModalOpen(false);
+
       const socket = new WebSocket(`${WEBSOCKETHOST}/ws?model_key=${newModelKey}`);
       attachWebSocket(socket);
 
-      socket.addEventListener("open", async () => {
+      socket.addEventListener("open", () => {
         const garments = products.map(p => ({
           id: p.id,
           url: p.image_path,
@@ -177,15 +180,13 @@ const handlePasscodeCheck = async (e) => {
           photo_type: p.photo_type || "flat-lay"
         }));
 
-        const startRes = await fetch(HOST + "/start_tryon", {
+        fetch(HOST + "/start_tryon", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ model_key: newModelKey,cache_id:cacheId, garments }),
+          body: JSON.stringify({ model_key: newModelKey, cache_id: cacheId, garments }),
+        }).then(res => {
+          if (!res.ok) console.error("start_tryon failed", res.status);
         });
-        
-        if (startRes.ok) enableTryOn(files);
-        else console.error("start_tryon failed");
-        setIsTryOnModalOpen(false)
       });
 
     } catch (err) {
@@ -247,19 +248,26 @@ const handlePasscodeCheck = async (e) => {
         )}
       </div>
 
-      {isTryOnMode && (
-        <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
-          <div className="flex items-center gap-3">
-            <Camera className="w-5 h-5 text-purple-600" />
-            <div>
-              <p className="font-medium text-purple-900">Virtual Try-On Active</p>
-              <p className="text-sm text-purple-700">
-                Viewing products with your uploaded photos • {uploadedPhotos.length} photo{uploadedPhotos.length !== 1 ? "s" : ""}
-              </p>
+      {isTryOnMode && (() => {
+        const total = products.length;
+        const done = Object.keys(tryonResults).length;
+        const allDone = done >= total && total > 0;
+        return (
+          <div className="mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
+            <div className="flex items-center gap-3">
+              <Camera className="w-5 h-5 text-purple-600" />
+              <div>
+                <p className="font-medium text-purple-900">Virtual Try-On Active</p>
+                <p className="text-sm text-purple-700">
+                  {allDone
+                    ? `All ${total} try-ons complete!`
+                    : `Trying on garment ${done} of ${total}...`}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Products Grid */}
       <div className="flex flex-col md:flex-row gap-8 lg:gap-12">

@@ -6,20 +6,19 @@ import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
 
 export default function ProductCard({ product, isTryOnMode = false, tryonResults = {} }) {
-  // Use try-on image if available, otherwise default image
-  const imageUrl = isTryOnMode && tryonResults[product.id]
-  ? tryonResults[product.id]
-  : (product.image_path || 'https://placehold.co/600x800/f1f5f9/f1f5f9');
-
-  // Only show try-on badge if try-on image exists
+  const isTryOnLoading = isTryOnMode && !tryonResults[product.id];
   const showTryOnBadge = isTryOnMode && tryonResults[product.id];
+
+  const imageUrl = tryonResults[product.id]
+    ? tryonResults[product.id]
+    : (product.image_path || 'https://placehold.co/600x800/f1f5f9/f1f5f9');
 
   return (
     <Link
-  to={createPageUrl(`ProductDetail?id=${product.id}`)}
-  state={{ tryonImage: tryonResults[product.id] || null }}
-  className="block"
->
+      to={createPageUrl(`ProductDetail?id=${product.id}`)}
+      state={{ tryonImage: tryonResults[product.id] || null }}
+      className="block"
+    >
 
       <Card className="border-none shadow-none bg-transparent group overflow-hidden">
         <CardContent className="p-0">
@@ -28,8 +27,13 @@ export default function ProductCard({ product, isTryOnMode = false, tryonResults
               <img
                 src={imageUrl}
                 alt={product.name}
-                className="object-cover w-full h-full rounded-md group-hover:opacity-80 transition-opacity duration-300"
+                className={`object-cover w-full h-full rounded-md group-hover:opacity-80 transition-opacity duration-300 ${isTryOnLoading ? 'opacity-40' : 'opacity-100'}`}
               />
+              {isTryOnLoading && (
+                <div className="absolute inset-0 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 animate-pulse rounded-md flex items-center justify-center">
+                  <span className="text-xs text-gray-600 font-medium">Trying on...</span>
+                </div>
+              )}
               {showTryOnBadge && (
                 <div className="absolute top-2 right-2">
                   <Badge className="bg-purple-600 text-white shadow-lg">

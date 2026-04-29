@@ -25,27 +25,34 @@ export const TryOnProvider = ({ children }) => {
 
   const attachWebSocket = (socket) => {
     if (wsRef.current) {
+      console.log("attachWebSocket called with existing socket - closing old one");
       try { wsRef.current.close(); } catch(e){}
     }
     wsRef.current = socket;
 
+    socket.addEventListener("open", () => console.log("WS opened", new Date().toISOString()));
+
     socket.addEventListener("message", (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.status === "done" && msg.garment_id && msg.url) {
+        if (msg.type === "result" && msg.status === "completed" && msg.result_url) {
           setTryonResults(prev => ({
             ...prev,
-            [msg.garment_id]: `${msg.url}?t=${Date.now()}`
+            [msg.garment_id]: `${msg.result_url}?t=${Date.now()}`
           }));
-        } else if (msg.status === "error") {
-          console.warn("Try-on error:", msg.garment_id, msg.error || msg);
+        } else if (msg.type === "result" && msg.status === "failed") {
+          console.warn("Try-on failed for garment:", msg.garment_id, msg.error || "unknown error");
+        } else if (msg.type === "complete") {
+          console.log("Try-on session complete. Total:", msg.total);
         }
       } catch (err) {
         console.error("WS parse error:", err);
       }
     });
 
-    socket.addEventListener("close", () => console.log("WS closed"));
+    socket.addEventListener("close", (e) => {
+      if (e.code !== 1000) console.log("WS closed", e.code);
+    });
     socket.addEventListener("error", (err) => console.error("WS error", err));
   };
 
